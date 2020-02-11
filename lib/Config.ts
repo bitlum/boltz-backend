@@ -8,7 +8,6 @@ import { PairConfig } from './consts/Types';
 import { ChainConfig } from './chain/ChainClient';
 import { LndConfig } from './lightning/LndClient';
 import { deepMerge, resolveHome, getServiceDataDir } from './Utils';
-import { EthereumConfig } from './wallet/EthereumWallet';
 
 type ServiceOptions = {
   configpath?: string;
@@ -66,6 +65,20 @@ type NotificationConfig = {
   interval: number;
 
   otpsecretpath: string;
+};
+
+type TokenConfig = {
+  symbol: string;
+  address: string;
+  decimals: number;
+};
+
+type EthereumConfig = {
+  providerEndpoint: string;
+  etherSwapContract: string;
+  erc20SwapContract: string;
+
+  tokens: TokenConfig[];
 };
 
 type ConfigType = {
@@ -252,6 +265,9 @@ class Config {
       ethereum: {
         providerEndpoint: '',
         tokens: [],
+
+        etherSwapContract: '',
+        erc20SwapContract: '',
       },
     };
   }
@@ -364,6 +380,7 @@ export {
   ConfigType,
   GrpcConfig,
   BackupConfig,
+  EthereumConfig,
   CurrencyConfig,
   NotificationConfig,
 };

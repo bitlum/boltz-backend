@@ -1,21 +1,15 @@
 import BN from 'bn.js';
 import Web3 from 'web3';
+import { randomBytes } from 'crypto';
+import { crypto } from 'bitcoinjs-lib';
 import { ContractABIs } from 'boltz-core';
-import { Contract } from 'web3-eth-contract';
 import HDWalletProvider from '@truffle/hdwallet-provider';
+import { IERC20 } from '../../node_modules/boltz-core/types/web3/IERC20';
 import Errors from './Errors';
 import Logger from '../Logger';
-
-type TokenConfig = {
-  symbol: string;
-  address: string;
-  decimals: number;
-};
-
-type EthereumConfig = {
-  tokens: TokenConfig[];
-  providerEndpoint: string;
-};
+import { EthereumConfig } from '../Config';
+import ContractHandler from '../chain/ContractHandler';
+import { etherDecimals, gweiDecimals, getGasPrice, stringify } from '../Utils';
 
 type EthereumBalance = {
   ether: number;
@@ -24,20 +18,19 @@ type EthereumBalance = {
 
 // TODO: show ethereum client status on startup
 // TODO: enforce gas limits?
-// TODO: typings for ERC20 token contract
 class EthereumWallet {
   public readonly address: string;
 
   public web3: Web3;
+  public contractHandler: ContractHandler;
+
   private provider: HDWalletProvider;
 
   // A map between the token symbols and their contracts
-  private tokenContracts = new Map<string, Contract>();
+  private tokenContracts = new Map<string, IERC20>();
 
   // A map between the token symbols and their decimals
   private tokenDecimals =  new Map<string, BN>();
-  private etherDecimals = new BN(10).pow(new BN(10));
-  private gweiDecimals = new BN(10).pow(new BN(9));
 
   constructor(
     private logger: Logger,
@@ -51,13 +44,20 @@ class EthereumWallet {
 
     // TODO: throw error for invalid configurations
     config.tokens.forEach((token) => {
-      const contract = new this.web3.eth.Contract(ContractABIs.IERC20ABI, token.address);
+      const contract = new this.web3.eth.Contract(ContractABIs.IERC20ABI, token.address) as IERC20;
 
       this.tokenContracts.set(token.symbol.toUpperCase(), contract);
 
       // TODO: support for tokens with less than 8 decimals
       this.tokenDecimals.set(token.symbol, new BN(10).pow(new BN(token.decimals - 8)));
     });
+
+    this.contractHandler = new ContractHandler(
+      this.logger,
+      this.web3,
+      this.address,
+      config,
+    );
 
     this.logger.info(`Initialized Ethereum wallet: ${this.address} with tokens: ${Array.from(this.tokenContracts.keys()).join(', ')}`);
   }
@@ -67,7 +67,7 @@ class EthereumWallet {
   }
 
   public getBalance = async (): Promise<EthereumBalance> => {
-    const etherBalance = new BN(await this.web3.eth.getBalance(this.address)).div(this.etherDecimals).toNumber();
+    const etherBalance = new BN(await this.web3.eth.getBalance(this.address)).div(etherDecimals).toNumber();
 
     const tokenBalances = new Map<string, number>();
 
@@ -81,6 +81,20 @@ class EthereumWallet {
         resolve();
       }));
     });
+
+    const preimage = randomBytes(32);
+    const preimageHash = crypto.sha256(preimage);
+
+    console.log(`Balance before: ${new BN(await this.web3.eth.getBalance(this.address)).div(etherDecimals).toNumber()}`);
+
+    await this.contractHandler.lockupEther(preimageHash, this.address, 10000000, 1);
+    console.log(stringify(await this.contractHandler.getEtherSwaps(preimageHash)));
+
+    console.log(`After lockup: ${new BN(await this.web3.eth.getBalance(this.address)).div(etherDecimals).toNumber()}`);
+
+    await this.contractHandler.claimEther(preimageHash, preimage);
+
+    console.log(`After claim: ${new BN(await this.web3.eth.getBalance(this.address)).div(etherDecimals).toNumber()}`);
 
     await Promise.all(balancePromises);
 
@@ -105,8 +119,8 @@ class EthereumWallet {
     return this.web3.eth.sendTransaction({
       to: address,
       from: this.address,
-      gasPrice: await this.getGasPrice(gasPrice),
-      value: new BN(value).mul(this.etherDecimals),
+      value: new BN(value).mul(etherDecimals),
+      gasPrice: await getGasPrice(this.web3, gasPrice),
     });
   }
 
@@ -117,13 +131,13 @@ class EthereumWallet {
   public sweepEther = async (address: string, gasPrice?: number) => {
     const balance = await this.web3.eth.getBalance(this.address);
 
-    const actualGasPrice = new BN(await this.getGasPrice(gasPrice));
+    const actualGasPrice = new BN(await getGasPrice(this.web3, gasPrice));
     // The gas needed for sending Ether is 21000
     const gasCost = new BN(21000).mul(actualGasPrice);
 
-    const amount = new BN(balance).sub(gasCost).div(this.etherDecimals);
+    const amount = new BN(balance).sub(gasCost).div(etherDecimals);
 
-    return this.sendEther(address, amount.toNumber(), actualGasPrice.div(this.gweiDecimals).toNumber());
+    return this.sendEther(address, amount.toNumber(), actualGasPrice.div(gweiDecimals).toNumber());
   }
 
   /**
@@ -143,7 +157,7 @@ class EthereumWallet {
 
     return contract.methods.transfer(address, new BN(amount).mul(this.tokenDecimals.get(symbol)!).toString()).send({
       from: this.address,
-      gasPrice: await this.getGasPrice(gasPrice),
+      gasPrice: await getGasPrice(this.web3, gasPrice),
     });
   }
 
@@ -156,15 +170,6 @@ class EthereumWallet {
     const balances = await this.getBalance();
     return this.sendToken(symbol, address, balances.tokens.get(symbol)!, gasPrice);
   }
-
-  private getGasPrice = async (gasPrice?: number) => {
-    if (gasPrice !== undefined) {
-      return this.web3.utils.toWei(new BN(gasPrice), 'gwei');
-    }
-
-    return (await this.web3.eth.getGasPrice()).toString();
-  }
 }
 
 export default EthereumWallet;
-export { EthereumConfig };

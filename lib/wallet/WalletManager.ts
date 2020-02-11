@@ -5,14 +5,14 @@ import { mnemonicToSeedSync, validateMnemonic } from 'bip39';
 import Errors from './Errors';
 import Wallet from './Wallet';
 import Logger from '../Logger';
-import { CurrencyConfig } from '../Config';
 import KeyRepository from './KeyRepository';
+import EthereumWallet from './EthereumWallet';
 import { splitDerivationPath } from '../Utils';
 import ChainClient from '../chain/ChainClient';
 import LndClient from '../lightning/LndClient';
+import { EthereumConfig, CurrencyConfig } from '../Config';
 import { KeyProviderType } from '../db/models/KeyProvider';
 import LndWalletProvider from './providers/LndWalletProvider';
-import EthereumWallet, { EthereumConfig } from './EthereumWallet';
 
 type Currency = {
   symbol: string;

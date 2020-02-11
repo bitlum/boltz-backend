@@ -1,5 +1,7 @@
 import os from 'os';
+import BN from 'bn.js';
 import path from 'path';
+import Web3 from 'web3';
 import bolt11 from '@boltz/bolt11';
 import { Transaction } from 'bitcoinjs-lib';
 import { OutputType, Scripts } from 'boltz-core';
@@ -18,6 +20,9 @@ const {
 } = Scripts;
 
 const idPossibilities = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+export const etherDecimals = new BN(10).pow(new BN(10));
+export const gweiDecimals = new BN(10).pow(new BN(9));
 
 /**
  * Generate an id
@@ -391,4 +396,12 @@ export const formatError = (error: any) => {
 
 export const getVersion = () => {
   return `${packageJson.version}${commitHash}`;
+};
+
+export const getGasPrice = async (web3: Web3, gasPrice?: number) => {
+  if (gasPrice !== undefined) {
+    return web3.utils.toWei(new BN(gasPrice), 'gwei').toString();
+  }
+
+  return (await web3.eth.getGasPrice()).toString();
 };
